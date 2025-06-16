@@ -1,196 +1,227 @@
 # Build-a-social-media-platform
-✅ Tech Stack:
-Frontend: HTML + Bootstrap
-Backend: Node.js + Express
-Database: MongoDB
-Authentication: Express-session with bcrypt
-Validation: Express-validator
+✅ Core Features
+User Registration/Login
+User Profiles with bio, profile picture
+Posts (text + media uploads)
+Like & Comment functionality
+Feed UI showing latest posts
+Media Upload (images/videos)
+Tagging users in posts
+🔧 Optional Features
+Follow/unfollow system
+Real-time notifications
+Explore/trending page
+Save/bookmark posts
+Direct messaging
 
-🔧 Step-by-Step Breakdown
+🛠️ Suggested Tech Stack
+Component
+Technology
 
-1. Project Structure
-employee-management/
-├── models/
-│   └── Employee.js
-├── routes/
-│   ├── auth.js
-│   └── employee.js
-├── views/
-│   ├── login.ejs
-│   ├── dashboard.ejs
-│   └── employees.ejs
-├── public/
-│   └── css/
-├── app.js
-├── package.json
-└── .env
+Frontend
+React.js + Tailwind CSS or Bootstrap
 
-2. 📦 package.json Dependencies
-Install them using:
-npm init -y
-npm install express mongoose express-session bcryptjs express-validator dotenv ejs connect-mongo
+Backend
+Node.js + Express.js
 
-3. 📁 models/Employee.js
+Database
+MongoDB (with Mongoose)
+
+Authentication
+JWT + bcrypt
+
+Media Storage
+Cloudinary / Firebase Storage
+
+Real-Time
+Socket.IO (for notifications, optional)
+
+
+🗂️ Folder Structure
+social-platform/
+├── client/           # React frontend
+│   └── src/
+│       ├── components/
+│       ├── pages/
+│       ├── api/
+│       └── App.js
+├── server/           # Express backend
+│   ├── models/
+│   ├── routes/
+│   ├── controllers/
+│   ├── middleware/
+│   └── server.js
+
+🧠 Step-by-Step Code Guide
+
+1. 🚀 Backend Setup
+1.1 server/server.js
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const authRoutes = require('./routes/authRoutes');
+const postRoutes = require('./routes/postRoutes');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+mongoose.connect('mongodb://localhost:27017/social-platform')
+    .then(() => console.log("DB connected"));
+
+app.use('/api/auth', authRoutes);
+app.use('/api/posts', postRoutes);
+
+app.listen(5000, () => console.log("Server running on port 5000"));
+
+1.2 Models
+models/User.js
 const mongoose = require('mongoose');
 
-const employeeSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, unique: true, required: true },
-  phone: String,
-  department: String,
-  jobTitle: String,
+const userSchema = new mongoose.Schema({
+  username: { type: String, unique: true },
+  email: String,
+  password: String,
+  bio: String,
+  profilePic: String
+});
+
+module.exports = mongoose.model('User', userSchema);
+models/Post.js
+const mongoose = require('mongoose');
+
+const postSchema = new mongoose.Schema({
+  userId: mongoose.Schema.Types.ObjectId,
+  content: String,
+  imageUrl: String,
+  likes: [mongoose.Schema.Types.ObjectId],
+  comments: [{
+    userId: mongoose.Schema.Types.ObjectId,
+    text: String,
+    createdAt: { type: Date, default: Date.now }
+  }],
   createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('Employee', employeeSchema);
+module.exports = mongoose.model('Post', postSchema);
 
-4. 📁 routes/auth.js
+1.3 Routes
+routes/authRoutes.js
 const express = require('express');
-const bcrypt = require('bcryptjs');
 const router = express.Router();
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// Dummy user for login
-const adminUser = {
-  username: 'admin',
-  passwordHash: bcrypt.hashSync('admin123', 10)
-};
-
-router.get('/login', (req, res) => {
-  res.render('login');
+// Register
+router.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  const hashed = await bcrypt.hash(password, 10);
+  const user = new User({ username, email, password: hashed });
+  await user.save();
+  res.send("User registered");
 });
 
+// Login
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  if (username === adminUser.username && bcrypt.compareSync(password, adminUser.passwordHash)) {
-    req.session.isAuth = true;
-    return res.redirect('/dashboard');
-  }
-  res.render('login', { error: 'Invalid credentials' });
-});
-
-router.get('/logout', (req, res) => {
-  req.session.destroy(err => {
-    res.redirect('/login');
-  });
+  const user = await User.findOne({ username });
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) return res.status(400).send("Invalid credentials");
+  const token = jwt.sign({ id: user._id }, 'secret');
+  res.json({ token });
 });
 
 module.exports = router;
 
-5. 📁 routes/employee.js
+routes/postRoutes.js
 const express = require('express');
-const { body, validationResult } = require('express-validator');
-const Employee = require('../models/Employee');
 const router = express.Router();
+const Post = require('../models/Post');
 
-const isAuth = (req, res, next) => {
-  if (req.session.isAuth) return next();
-  res.redirect('/login');
-};
-
-// Read
-router.get('/', isAuth, async (req, res) => {
-  const employees = await Employee.find();
-  res.render('employees', { employees });
+// Create post
+router.post('/', async (req, res) => {
+  const post = new Post(req.body);
+  await post.save();
+  res.json(post);
 });
 
-// Create
-router.post('/add',
-  isAuth,
-  body('email').isEmail().withMessage('Invalid email'),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).send('Validation failed');
-    const { name, email, phone, department, jobTitle } = req.body;
-    const employee = new Employee({ name, email, phone, department, jobTitle });
-    await employee.save();
-    res.redirect('/employees');
+// Get all posts
+router.get('/', async (req, res) => {
+  const posts = await Post.find().sort({ createdAt: -1 });
+  res.json(posts);
 });
 
-// Update
-router.post('/update/:id', isAuth, async (req, res) => {
-  const { name, email, phone, department, jobTitle } = req.body;
-  await Employee.findByIdAndUpdate(req.params.id, { name, email, phone, department, jobTitle });
-  res.redirect('/employees');
-});
-
-// Delete
-router.post('/delete/:id', isAuth, async (req, res) => {
-  await Employee.findByIdAndDelete(req.params.id);
-  res.redirect('/employees');
+// Like post
+router.put('/like/:id', async (req, res) => {
+  await Post.findByIdAndUpdate(req.params.id, {
+    $addToSet: { likes: req.body.userId }
+  });
+  res.send("Liked");
 });
 
 module.exports = router;
 
-6. 📁 views/login.ejs
-<!DOCTYPE html>
-<html>
-<head><title>Login</title></head>
-<body>
-  <form method="POST" action="/login">
-    <h2>Admin Login</h2>
-    <input name="username" placeholder="Username" required>
-    <input name="password" type="password" placeholder="Password" required>
-    <button type="submit">Login</button>
-    <% if (typeof error !== 'undefined') { %><p><%= error %></p><% } %>
-  </form>
-</body>
-</html>
+2. 🖼️ Frontend (React)
+2.1 App.js (simple post feed and creator)
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
-7. 📁 views/employees.ejs
-<!DOCTYPE html>
-<html>
-<head><title>Employee List</title></head>
-<body>
-  <h2>Employee Records</h2>
-  <form method="POST" action="/employees/add">
-    <input name="name" placeholder="Name">
-    <input name="email" placeholder="Email">
-    <button type="submit">Add</button>
-  </form>
-  <ul>
-    <% employees.forEach(emp => { %>
-      <li><%= emp.name %> - <%= emp.email %></li>
-    <% }); %>
-  </ul>
-  <a href="/logout">Logout</a>
-</body>
-</html>
-8. 📄 app.js
-const express = require('express');
-const session = require('express-session');
-const MongoStore = require('connect-mongo');
-const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const authRoutes = require('./routes/auth');
-const employeeRoutes = require('./routes/employee');
+function App() {
+  const [content, setContent] = useState('');
+  const [posts, setPosts] = useState([]);
+  const createPost = async () => {
+    await axios.post('http://localhost:5000/api/posts', {
+      content,
+      userId: "123", // replace with actual auth
+      imageUrl: ""
+    });
+    setContent('');
+    fetchPosts();
+  };
 
-dotenv.config();
-const app = express();
-app.set('view engine', 'ejs');
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+  const fetchPosts = async () => {
+    const res = await axios.get('http://localhost:5000/api/posts');
+    setPosts(res.data);
+  };
 
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+  useEffect(() => {
+    fetchPosts();
+  }, []);
 
-app.use(session({
-  secret: 'secret123',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({ mongoUrl: process.env.MONGO_URI }),
-  cookie: { maxAge: 1000 * 60 * 60 }
-}));
+  return (
+    <div>
+      <h1>Social Feed</h1>
+      <textarea value={content} onChange={(e) => setContent(e.target.value)} />
+      <button onClick={createPost}>Post</button>
 
-app.use(authRoutes);
-app.use('/employees', employeeRoutes);
-app.get('/dashboard', (req, res) => res.redirect('/employees'));
+      {posts.map(post => (
+        <div key={post._id}>
+          <p>{post.content}</p>
+          <small>{new Date(post.createdAt).toLocaleString()}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(Server running on port ${PORT}));
+export default App;
 
-9. 🔐 .env
-MONGO_URI=mongodb://localhost:27017/employee_db
+✅ Optional Feature Extensions
+Feature
+How to Implement
 
-✅ Final Notes:
-Launch MongoDB locally or use MongoDB Atlas.
-Start server with node app.js
-Access at: http://localhost:3000/login (login with admin / admin123)
+Follow system
+Add followers and following arrays in User model
+
+Real-time notifications
+Use Socket.IO to emit events on new likes/comments
+
+File uploads
+Use Multer or Cloudinary for imageUrl
+
+Explore page
+Sort posts by likes or tags
+
+Tagging users
+Parse @username mentions and link to profiles
